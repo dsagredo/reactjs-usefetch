@@ -1,70 +1,193 @@
-# Getting Started with Create React App
+# Crear un personalizado useFetch() React Hook
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Un enlace personalizado es una función de JavaScript con una convención de nomenclatura única que requiere:
 
-## Available Scripts
+**Tabla de Contenido**
 
-In the project directory, you can run:
+-   [Abstraer fetch en useFetch()](#abstraer-fetch-en-usefetch)
+-   [Evitar bucles de referencia](#evitar-bucles-de-referencia)
+-   [Error de devolución de useEffect](#error-de-devolución-de-useeffect)
+-   [Manejo de Errores](#manejo-de-errores)
+-   [Establecer indicadores de carga](#establecer-indicadores-de-carga)
+-   [Uso](#uso)
+-   [Pensamientos finales](#pensamientos-finales)
 
-### `yarn start`
+1. el nombre de la función para comenzar <code>use</code> y
+2. la función puede llamar a otros ganchos
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+Toda la idea detrás de los ganchos personalizados es solo para que podamos extraer la lógica del componente en funciones reutilizables.
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+Muchas veces, a medida que desarrollamos aplicaciones React, nos vemos escribiendo casi los mismos códigos exactos en dos o más componentes diferentes. Idealmente, lo que podríamos hacer en tales casos sería extraer esa lógica recurrente en un código reutilizable (gancho) y reutilizarla donde sea necesario.
 
-### `yarn test`
+Antes de los ganchos, compartimos una lógica con estado entre los componentes que utilizan accesorios de renderizado y componentes de orden superior, sin embargo, desde la introducción de los ganchos y desde que llegamos a comprender cuán limpios son estos conceptos, ya no tenía sentido seguir usándolos. Básicamente, cuando queremos compartir la lógica entre dos funciones de JavaScript, la extraemos a una tercera función posiblemente porque tanto los componentes como los enlaces son funciones igualmente justas.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+# Abstraer fetch en useFetch()
 
-### `yarn build`
+La razón detrás de este movimiento no es diferente de lo que ya hemos explicado anteriormente. En comparación con el uso de la API nativa de extracción de fábrica, abstraerlo en el <code>useFetch</code> gancho nos brinda una capacidad única, un estilo de código más declarativo, lógica reutilizable y un código general más limpio, como veremos en un minuto. Considere este ejemplo simple de useFetch:
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+```javascript
+const useFetch = (url, options) => {
+    const [response, setResponse] = React.useState(null);
+    useEffect(async () => {
+        const res = await fetch(url, options);
+        const json = await res.json();
+        setResponse(json);
+    });
+    return response;
+};
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+Aquí, el gancho de efecto llamado useEffect se usa para realizar funciones principales:
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+recuperar los datos con la API nativa de recuperación y
+Establezca los datos en el estado local del componente con la función de actualización del enlace de estado.
+Observe también que la resolución de la promesa ocurre con async/await.
 
-### `yarn eject`
+# Evitar bucles de referencia
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+El enlace de efecto se ejecuta en dos ocasiones: cuando el componente se monta y también cuando el componente se actualiza. Lo que esto significa es que, si no se hace nada sobre el ejemplo useFetch anterior, definitivamente nos toparemos con un ciclo de ciclo recurrente aterrador. ¿Por qué? Como establecemos el estado después de cada búsqueda de datos, como resultado, cuando establecemos el estado, el componente se actualiza y el efecto se ejecuta nuevamente.
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+Obviamente, esto dará como resultado un bucle infinito de obtención de datos y no queremos eso. Lo que sí queremos es recuperar datos solo cuando se monta el componente y tenemos una forma ordenada de hacerlo. Todo lo que tenemos que hacer es proporcionar una matriz vacía como segundo argumento para el enlace de efectos, esto impedirá que se active en las actualizaciones de componentes, pero solo cuando el componente esté montado.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+```javascript
+useEffect(async () => {
+    const res = await fetch(url, options);
+    const json = await res.json();
+    setResponse(json);
+}, []); // empty array
+```
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+El segundo es una matriz que contiene todas las variables de las que depende el gancho. Si alguna de las variables cambia, el gancho se ejecuta nuevamente, pero si el argumento es una matriz vacía, el gancho no se ejecuta al actualizar el componente, ya que no hay variables para observar.
 
-## Learn More
+# Error de devolución de useEffect
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+Es posible que haya notado que en el enlace de efecto anterior, estamos usando async/await para obtener datos. Sin embargo, según las estipulaciones de la documentación, cada función anotada con asíncrono devuelve una promesa implícita. Entonces, en nuestro enlace de efectos, estamos devolviendo una promesa implícita, mientras que un enlace de efectos solo debería devolver nada o una función de limpieza.
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+Entonces, por diseño, ya estamos rompiendo esta regla porque:
 
-### Code Splitting
+1. No devolvemos nada
+2. Una promesa no limpia nada
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+Como resultado, si continuamos con el código tal como está, recibiremos una advertencia en la consola que señala el hecho de que la función useEffect debe devolver una función de limpieza o nada.
+<img src="src/img.png">
+En pocas palabras, el uso de funciones asíncronas directamente en la <code>useEffect()</code> función está mal visto. Lo que podemos hacer para solucionar esto es exactamente lo que se recomienda en la advertencia anterior. Escriba la función asíncrona y úsela dentro del efecto.
 
-### Analyzing the Bundle Size
+```javascript
+useEffect(() => {
+    const fetchData = async () => {
+        const res = await fetch(url, options);
+        const json = await res.json();
+        setResponse(json);
+    };
+    fetchData();
+}, []);
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+En lugar de usar la función asincrónica directamente dentro de la función de efecto, creamos una nueva función asincrónica fetchData()para realizar la operación de recuperación y simplemente llamar a la función dentro de useEffect. De esta manera, cumplimos con la regla de no devolver nada o solo una función de limpieza en un enlace de efecto. Y si vuelve a comprobar en la consola, no verá más advertencias.
 
-### Making a Progressive Web App
+# Manejo de Errores
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+Una cosa que no hemos mencionado o cubierto hasta ahora es cómo podemos manejar los límites de error en este concepto. Bueno, no es complicado, cuando se usa async/await, es una práctica común usar la buena try/catchconstrucción anterior para el manejo de errores y afortunadamente también funcionará para nosotros aquí.
 
-### Advanced Configuration
+```javascript
+const useFetch = (url, options) => {
+    const [response, setResponse] = useState(null);
+    const [error, setError] = useState(null);
+    useEffect(() => {
+        const fetchData = async () => {
+            try {
+                const res = await fetch(url, options);
+                const json = await res.json();
+                setResponse(json);
+            } catch (error) {
+                setError(error);
+            }
+        };
+        fetchData();
+    }, []);
+    return {response, error};
+};
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+Aquí, utilizamos la muy popular sintaxis JavaScript try/catch para establecer y manejar los límites de error. El error en sí es solo otro estado inicializado con un enlace de estado, por lo que cada vez que se ejecuta el enlace, el estado de error se restablece. Sin embargo, cada vez que hay un estado de error, el componente envía comentarios al usuario o prácticamente puede realizar cualquier operación deseada con él.
 
-### Deployment
+# Establecer indicadores de carga
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+Puede que ya lo sepas, pero sigo sintiendo que será útil señalar que puedes usar ganchos para manejar los estados de carga para tus operaciones de recuperación. Lo bueno es que es solo otra variable de estado administrada por un enlace de estado, por lo que si quisiéramos implementar un estado de carga en nuestro último ejemplo, configuraremos la variable de estado y actualizaremos nuestra <code>useFetch()</code> función en consecuencia.
 
-### `yarn build` fails to minify
+```javascript
+const useFetch = (url, options) => {
+    const [response, setResponse] = useState(null);
+    const [error, setError] = useState(null);
+    const [isLoading, setIsLoading] = useState(false);
+    useEffect(() => {
+        const fetchData = async () => {
+            setIsLoading(true);
+            try {
+                const res = await fetch(url, options);
+                const json = await res.json();
+                setResponse(json);
+                setIsLoading(false);
+            } catch (error) {
+                setError(error);
+            }
+        };
+        fetchData();
+    }, []);
+    return {response, error, isLoading};
+};
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+# Uso
+
+No podemos completar este tutorial sin trabajar en una demostración práctica para poner en práctica todo lo que hemos hablado. Creemos una mini aplicación que obtenga un montón de imágenes de perros y sus nombres. Usaremos useFetch para llamar a la API de perro muy buena para los datos que necesitaremos para esta aplicación.
+
+Primero definimos nuestra <code>useFetch()</code> función, que es exactamente la misma que hicimos antes. Simplemente reutilizaremos el que creamos mientras demostramos el manejo de errores anterior para explicar el concepto de obtención de datos en la práctica, ya que ya tiene la mayoría de las cosas que necesitaremos.
+
+```javascript
+const useFetch = (url, options) => {
+    const [response, setResponse] = useState(null);
+    const [error, setError] = useState(null);
+    useEffect(() => {
+        const fetchData = async () => {
+            try {
+                const res = await fetch(url, options);
+                const json = await res.json();
+                setResponse(json);
+            } catch (error) {
+                setError(error);
+            }
+        };
+        fetchData();
+    }, []);
+    return {response, error};
+};
+```
+
+A continuación, creamos la <code>App()</code> función que realmente utilizará nuestra <code>useFetch()</code> función para solicitar los datos del perro que necesitamos y mostrarlos en la pantalla.
+
+```javascript
+const App = () => {
+    const res = useFetch("https://dog.ceo/api/breeds/image/random", {});
+    if (!res.response) {
+        return <div>Loading...</div>;
+    }
+    const dogName = res.response.status;
+    const imageUrl = res.response.message;
+    return (
+        <div className="App">
+            <div>
+                <h3>{dogName}</h3>
+                <div>
+                    <img src={imageUrl} alt="avatar" />
+                </div>
+            </div>
+        </div>
+    );
+};
+```
+
+# Pensamientos finales
+
+La recuperación de datos siempre ha sido un problema con el que lidiar al crear aplicaciones frontend, esto generalmente se debe a todos los casos extremos que deberá tener en cuenta. En esta publicación, explicamos e hicimos una pequeña demostración para explicar cómo podemos obtener datos declarativamente y representarlos en la pantalla utilizando el <code>useFetch</code> enlace con la <code>fetch()</code> API nativa.
+# reactjs-usefetch
